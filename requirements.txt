@@ -1,0 +1,7 @@
+sqlalchemy~=2.0.28
+pandas~=2.0.2
+numpy~=1.25
+pandasql~=0.7.3
+JPype1~=1.4.1
+pyarrow~=16.1.0
+petace~=0.3.0
