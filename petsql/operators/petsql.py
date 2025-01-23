@@ -14,7 +14,8 @@
 
 import petace.securenumpy as snp
 from petace.network import NetParams, NetScheme, NetFactory
-from petace.duet import VM as DuetVM
+from petace.backend.duet import DuetVM
+from petace.engine import PETAceEngine
 from petace.setops.psi import PSI
 from petace.setops import PSIScheme
 
@@ -167,7 +168,8 @@ class PETSQL(OperatorBase):
             net_params.remote_party = get_remote_party(common["parties"])
             net = NetFactory.get_instance().build(NetScheme.AGENT, net_params)
         duet = DuetVM(net, self.party_id)
-        snp.set_vm(duet)
+        engine = PETAceEngine(duet)
+        snp.set_engine(engine)
         psi = PSI(net, self.party_id, PSIScheme.ECDH_PSI)
         config = Config()
         config.from_dict(configmap["common"]["config"])
@@ -177,12 +179,11 @@ class PETSQL(OperatorBase):
         sql_engine = SqlEngineFactory.create_engine(config.engine_url)
         plain_engine = PlainEngine(data_handler, sql_engine, config.mode)
         sql_vm = VM(Party(self.party_id), cipher_engine, plain_engine, mode=config.mode)
-        executor = PETSQLExecutor(Party(self.party_id), SQLCompiler(), MPCTransporter(), MPCSQLOptimizer(), sql_vm)
+        executor = PETSQLExecutor(Party(self.party_id), SQLCompiler("./"), MPCTransporter(), MPCSQLOptimizer(), sql_vm)
         ret = executor.exec_sql(sql, config)
         if self.party_id == config.reveal_to.value:
-            columns = [item.name for item in ret.schema.columns]
             data_handler.write(configmap[self.party]["outputs"]["data"][0],
                                ret.plain_data.data,
                                ret.schema.name,
-                               columns=columns)
+                               columns=ret.schema.columns)
         return True

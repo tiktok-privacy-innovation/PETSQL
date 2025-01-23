@@ -6,16 +6,16 @@ We illustrate three examples here to show you how to use PETSQL.
 
 We assume that PETSQL has been correctly installed.
 
-We have provided all the processes in the `example.py`.
+We have provided all the processes in the `memory.py`. The versions of big data are almost the same, except for some configurations and initialization, see `bigdata.py`.
 
 To run the examples, open two terminal sessions and run this command in the first terminal:
 
 ```shell
-python3 ./example/example.py -p 0
+python3 ./example/memory.py -p 0
 ```
 
 ```shell
-python3 ./example/example.py -p 1
+python3 ./example/memory.py -p 1
 ```
 
 Next, we will explain each step.
@@ -106,7 +106,8 @@ net = NetFactory.get_instance().build(NetScheme.SOCKET, net_params)
 
 # init petsql
 duet = DuetVM(net, party)
-snp.set_vm(duet)
+engine = PETAceEngine(duet)
+snp.set_engine(engine)
 
 psi = PSI(net, party, PSIScheme.ECDH_PSI)
 
@@ -115,7 +116,7 @@ data_handler = DataHandler()
 sql_engine = SqlEngineFactory.create_engine(config.engine_url)
 plain_engine = PlainEngine(data_handler, sql_engine, Mode.MEMORY)
 sql_vm = VM(Party(party), cipher_engine, plain_engine)
-executor = PETSQLExecutor(Party(party), SQLCompiler(), MPCTransporter(), MPCSQLOptimizer(), sql_vm)
+executor = PETSQLExecutor(Party(party), SQLCompiler("./"), MPCTransporter(), MPCSQLOptimizer(), sql_vm)
 ```
 
 Now, we can proceed with SQL computations.

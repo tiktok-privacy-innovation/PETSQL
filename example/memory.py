@@ -18,7 +18,8 @@ import pandas as pd
 from pandasql import sqldf
 
 from petace.network import NetParams, NetScheme, NetFactory
-from petace.duet import VM as DuetVM
+from petace.backend.duet import DuetVM
+from petace.engine import PETAceEngine
 from petace.setops import PSI, PSIScheme
 import petace.securenumpy as snp
 
@@ -124,7 +125,8 @@ if __name__ == "__main__":
 
     # init petsql
     duet = DuetVM(net, party)
-    snp.set_vm(duet)
+    engine = PETAceEngine(duet)
+    snp.set_engine(engine)
 
     psi = PSI(net, party, PSIScheme.ECDH_PSI)
 
@@ -133,7 +135,7 @@ if __name__ == "__main__":
     sql_engine = SqlEngineFactory.create_engine(config.engine_url)
     plain_engine = PlainEngine(data_handler, sql_engine, Mode.MEMORY)
     sql_vm = VM(Party(party), cipher_engine, plain_engine)
-    executor = PETSQLExecutor(Party(party), SQLCompiler(), MPCTransporter(), MPCSQLOptimizer(), sql_vm)
+    executor = PETSQLExecutor(Party(party), SQLCompiler("./"), MPCTransporter(), MPCSQLOptimizer(), sql_vm)
 
     # sql
     sql = """

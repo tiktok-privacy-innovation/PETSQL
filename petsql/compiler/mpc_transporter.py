@@ -261,15 +261,14 @@ class ArithOperator:
         ValueError
             If the operation name is not supported.
         """
-        operations = {
-            "+": a + b,
-            "-": a - b,
-            "*": a * b,
-            "/": a / b,
-        }
-
-        if op_name in operations:
-            return operations[op_name]
+        if op_name == "+":
+            return a + b
+        if op_name == "-":
+            return a - b
+        if op_name == "*":
+            return a * b
+        if op_name == "/":
+            return a / b
         raise ValueError(f"Unsupported operation name: {op_name}")
 
 

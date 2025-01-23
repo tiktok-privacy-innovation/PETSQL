@@ -18,16 +18,21 @@ from typing import Dict
 from pandasql import sqldf
 
 from petace.network import NetParams, NetScheme, NetFactory
-from petace.duet import VM as DuetVM
+from petace.backend.duet import DuetVM
 from petace.setops.psi import PSI
 from petace.setops import PSIScheme
 
 import petace.securenumpy as snp
+from petace.engine import PETAceEngine
+from petace.backend.bigdata import BigDataVM
+from petace.setops.bigdata_setops import BigdataSetOps
+
+from crypto_data_engine import Context
 
 from petsql.engine.cipher_engine import CipherEngine
 from petsql.common import Mode
 from petsql.data import Party
-from petsql.engine.plain_engine.data_handlers import DataHandler
+from petsql.engine.plain_engine.data_handlers import DataHandler, SparkDataHandler
 from petsql.engine.plain_engine.sql_engine import SqlEngineFactory
 from petsql.engine.plain_engine import PlainEngine
 from petsql.compiler import MPCTransporter, MPCSQLOptimizer, SQLCompiler
@@ -109,9 +114,9 @@ def run_test(test_func):
 def init_network(party: int):
     net_params = NetParams()
     ip1 = "127.0.0.1"
-    port1 = 8890
+    port1 = 17890
     ip2 = "127.0.0.1"
-    port2 = 8891
+    port2 = 17891
     if party == 0:
         net_params.remote_addr = ip1
         net_params.remote_port = port1
@@ -126,13 +131,56 @@ def init_network(party: int):
 
 def init_duet(net: "Network", party: int):
     duet = DuetVM(net, party)
-    snp.set_vm(duet)
-    return duet
+    vm = PETAceEngine(duet)
+    snp.set_engine(vm)
+    return vm
 
 
 def init_psi(net: "Network", party: int):
     psi = PSI(net, party, PSIScheme.ECDH_PSI)
     return psi
+
+
+def init_spark_duet(_net: "Network", party: int):
+    dir = os.path.dirname(os.path.abspath(__file__))
+    parties = {
+        '0': {
+            "remote_addr": "127.0.0.1",
+            "remote_port_base": 12000,
+            "local_port_base": 13000
+        },
+        '1': {
+            "remote_addr": "127.0.0.1",
+            "remote_port_base": 13000,
+            "local_port_base": 12000
+        }
+    }
+    bigdata = BigDataVM(party, {"work_directory": dir + f"/test_tmp_data/{party}/cipher_data/duet"}, 'socket', parties,
+                        2)
+    vm = PETAceEngine(bigdata)
+    snp.set_engine(vm)
+    return vm
+
+
+def init_spark_psi(party: int):
+    dir = os.path.dirname(os.path.abspath(__file__))
+    engine_ctx_params = {"work_directory": dir + f"/test_tmp_data/{party}/cipher_data/psi", 'engine_type': "local"}
+
+    ctx = Context(**engine_ctx_params)
+
+    parties = {
+        '0': {
+            "remote_addr": "127.0.0.1",
+            "remote_port_base": 19000,
+            "local_port_base": 18000
+        },
+        '1': {
+            "remote_addr": "127.0.0.1",
+            "remote_port_base": 18000,
+            "local_port_base": 19000
+        }
+    }
+    return BigdataSetOps(party, ctx, "socket", parties)
 
 
 class PETSQLTestBase:
@@ -153,7 +201,21 @@ class PETSQLTestBase:
         self.sql_engine = SqlEngineFactory.create_engine(self.config.engine_url)
         self.plain_engine = PlainEngine(self.data_handler, self.sql_engine, mode)
         self.sql_vm = VM(Party(party), self.cipher_engine, self.plain_engine, mode=mode)
-        self.executor = PETSQLExecutor(Party(party), SQLCompiler(), MPCTransporter(), MPCSQLOptimizer(), self.sql_vm)
+        self.executor = PETSQLExecutor(Party(party), SQLCompiler("./"), MPCTransporter(), MPCSQLOptimizer(),
+                                       self.sql_vm)
+
+    def _init_spark_executor(self, party: int, mode: "Mode"):
+        self.net = init_network(party)
+        self.duet = init_spark_duet(self.net, party)
+        self.psi = init_spark_psi(party)
+        self.cipher_engine = CipherEngine(self.duet, self.psi, mode)
+        self.data_handler = SparkDataHandler()
+        self.config = TestConfig.get_spark_config(party)
+        self.sql_engine = SqlEngineFactory.create_engine(self.config.engine_url)
+        self.plain_engine = PlainEngine(self.data_handler, self.sql_engine, mode)
+        self.sql_vm = VM(Party(party), self.cipher_engine, self.plain_engine, mode=mode)
+        self.executor = PETSQLExecutor(Party(party), SQLCompiler("./"), MPCTransporter(), MPCSQLOptimizer(),
+                                       self.sql_vm)
 
     def run_process(self, party):
         for method in dir(self):

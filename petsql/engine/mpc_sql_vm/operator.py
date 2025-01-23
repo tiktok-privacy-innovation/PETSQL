@@ -19,7 +19,7 @@ import copy
 from petsql.data import Schema, Column, Party
 from petsql.common import Mode
 from petsql.data import DataType
-from petsql.data import PlainMemoryData, PlainBigData
+from petsql.data import PlainMemoryData, PlainBigData, PlainSparkData
 from .exception import MPCSQLOperatorInvaildParamsError
 
 
@@ -150,6 +150,8 @@ class RevealTo(MPCSQLOperatorBase):
         The physical plan.
     """
 
+    # pylint: disable=too-many-statements
+    # pylint: disable=too-many-branches
     def run(self, vm: "VM", physical_plan: Dict):
         reveal_to = physical_plan["reveal_to"]
         if isinstance(reveal_to, int):
@@ -164,7 +166,11 @@ class RevealTo(MPCSQLOperatorBase):
             if column.party == Party.SHARE:
                 tmp_column = Column(column.name, column.type, Party(reveal_to))
                 share_schema.append_column(tmp_column)
-        revealed_mpc_data = vm.data_converter.transport(reg_item.cipher_data, DataType.PLAIN_MEMORY, share_schema)
+        if vm.mode == Mode.SPARK:
+            revealed_mpc_data = vm.data_converter.transport(reg_item.cipher_data, DataType.PLAIN_SPARK, share_schema,
+                                                            {"url": vm.plain_impl.sql_driver.url})
+        else:
+            revealed_mpc_data = vm.data_converter.transport(reg_item.cipher_data, DataType.PLAIN_MEMORY, share_schema)
         # reveal_oppo
         oppo_schema = Schema("_" + "_oppo", Party(1 - reveal_to), [])
         for column in reg_item.schema.columns:
@@ -181,24 +187,40 @@ class RevealTo(MPCSQLOperatorBase):
                     plain_data = PlainMemoryData(None, None)
                 elif vm.mode == Mode.BIGDATA:
                     plain_data = PlainBigData(None, None)
-            tmp_oppo_share_data = vm.data_converter.transport(plain_data, DataType.MPC_DUET, oppo_schema)
+                elif vm.mode == Mode.SPARK:
+                    plain_data = PlainSparkData(None, None)
+            if vm.mode == Mode.SPARK:
+                tmp_oppo_share_data = vm.data_converter.transport(plain_data, DataType.MPC_BIGDATA, oppo_schema)
+            else:
+                tmp_oppo_share_data = vm.data_converter.transport(plain_data, DataType.MPC_DUET, oppo_schema)
             for column in oppo_schema.columns:
                 column.party = Party(1 - column.party.value)
-            oppo_data = vm.data_converter.transport(tmp_oppo_share_data, DataType.PLAIN_MEMORY, oppo_schema)
+            oppo_schema.party = Party(reveal_to)
+            if vm.mode == Mode.SPARK:
+                oppo_data = vm.data_converter.transport(tmp_oppo_share_data, DataType.PLAIN_SPARK, oppo_schema,
+                                                        {"url": vm.plain_impl.sql_driver.url})
+            else:
+                oppo_data = vm.data_converter.transport(tmp_oppo_share_data, DataType.PLAIN_MEMORY, oppo_schema)
         else:
-            oppo_data = PlainMemoryData(None, None)
+            oppo_data = None
         if reg_item.plain_data is None:
             reg_item_memory_data = None
         elif reg_item.plain_data.data_type == DataType.PLAIN_BIG_DATA:
-            columns = [column.name for column in reg_item.plain_data.schema.columns]
             reg_item_memory_data_pd = vm.plain_impl.load_data_from_plain_data(reg_item.plain_data,
-                                                                              reg_item.plain_data.schema.name, columns)
-            reg_item_memory_data = PlainMemoryData(reg_item_memory_data_pd, reg_item.plain_data.schema)
+                                                                              reg_item.plain_data.schema.name,
+                                                                              reg_item.plain_data.schema.columns)
+            reg_item_memory_data = PlainMemoryData(reg_item_memory_data_pd, reg_item.plain_data.schema,
+                                                   reg_item.plain_data.index)
         else:
             reg_item_memory_data = reg_item.plain_data
-        vm.new_register_item(
-            vm.data_converter.combine_data([reg_item_memory_data, revealed_mpc_data, oppo_data], output_schema), None,
-            output_schema)
+        if vm.mode == Mode.SPARK:
+            vm.new_register_item(
+                vm.data_converter.combine_spark_data([reg_item_memory_data, revealed_mpc_data, oppo_data],
+                                                     output_schema), None, output_schema)
+        else:
+            vm.new_register_item(
+                vm.data_converter.combine_data([reg_item_memory_data, revealed_mpc_data, oppo_data], output_schema),
+                None, output_schema)
 
 
 class Aggregate(MPCSQLOperatorBase):
@@ -245,6 +267,7 @@ class Aggregate(MPCSQLOperatorBase):
         share_pyhsical_plan["outputs"] = [share_output_schema.to_dict()]
         if group_by_column_party == vm.party:
             plain_data = vm.plain_impl.aggregate(reg_item, plain_physical_plan)
+            plain_data.index = physical_plan["group"][0]["name"]
         else:
             plain_data = None
         if share_output_schema.columns:

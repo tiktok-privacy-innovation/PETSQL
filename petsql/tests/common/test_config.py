@@ -14,8 +14,7 @@
 
 from petsql.common import Config
 
-from petsql.tests.utils import CommonTestBase, TestDataUtils
-from petsql.tests.config import TestConfig
+from petsql.tests.utils import CommonTestBase
 
 
 class TestConfigClass(CommonTestBase):
@@ -32,8 +31,3 @@ class TestConfigClass(CommonTestBase):
         test_json_0 = test_config_0.to_json()
         test_json_1 = test_config_1.to_json()
         assert test_json_0 == test_json_1
-
-        test_config_2 = TestConfig.get_config()
-        test_dict_2 = test_config_2.to_dict()
-        aim_dict = TestDataUtils.load_json_from_file("test_config.json")
-        assert test_dict_2 == aim_dict

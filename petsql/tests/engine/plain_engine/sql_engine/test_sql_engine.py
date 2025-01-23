@@ -15,7 +15,9 @@
 import pandas as pd
 
 from petsql.engine.plain_engine.sql_engine import SqlEngineFactory
+from petsql.engine.plain_engine.data_handlers import SparkDataHandler
 from petsql.tests.utils import CommonTestBase
+from petsql.tests.config import TestSchema, TestConfig
 
 
 class TestSQLEngine(CommonTestBase):
@@ -38,3 +40,11 @@ class TestSQLEngine(CommonTestBase):
         engine = SqlEngineFactory.create_engine(url)
         res = engine.execute("select * from table_from_a limit 10")
         assert res.shape[0] == 10
+
+    def test_spark(self):
+        spark_url = TestConfig.get_test_spark_url(0)
+        spark_engine = SqlEngineFactory.create_engine(spark_url)
+        schema = TestSchema.get_schema_from_a()
+        table_path = TestConfig.get_test_data_path(0) + "/csv/table_from_a.csv"
+        SparkDataHandler.write(spark_url, table_path, "table_from_a", schema.columns, "id1", header=True)
+        spark_engine.execute("select id1 from table_from_a limit 10", True)

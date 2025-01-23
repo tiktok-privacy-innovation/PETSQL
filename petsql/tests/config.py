@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import json
 from petsql.data import Column, ColumnType, Party
 from petsql.data import Schema
 from petsql.common import Config, Mode
@@ -52,9 +54,10 @@ class TestConfig:
     def get_config():
         config = Config()
         config.schemas = [TestSchema.get_schema_from_a(), TestSchema.get_schema_from_b()]
+        dir = os.path.dirname(os.path.abspath(__file__))
         config.table_url = {
-            "table_from_a": "./tests/test_data/csv/table_from_a.csv",
-            "table_from_b": "./tests/test_data/csv/table_from_b.csv"
+            "table_from_a": dir + "/test_data/csv/table_from_a.csv",
+            "table_from_b": dir + "/test_data/csv/table_from_b.csv"
         }
         config.engine_url = "memory:///"
         config.reveal_to = Party.ZERO
@@ -75,21 +78,68 @@ class TestConfig:
         JOIN (select id1, id2, f1 + f2 + 2.01 as f1, f1 * f2 + 1 as f2, f3 from table_from_b) AS b ON a.id1 = b.id1
         GROUP BY b.f3
         """
+
+        # sql = """
+        # SELECT
+        #     b.f1 + b.f2 as sum_f2,
+        #     b.f1 * b.f1 + a.f1 - a.f1 / b.f1 AS max_f,
+        #     b.f1 * a.f1 + 1 as min_f
+        # FROM (select id1, id2, f1 from table_from_a where f1 < 90) AS a
+        # JOIN (select id1, id2, f1 + f2 + 2.01 as f1, f1 * f2 + 1 as f2, f3 from table_from_b) AS b ON a.id1 = b.id1
+        # """
         return sql
 
     @staticmethod
     def get_bigdata_config(party):
         config = Config()
         config.schemas = [TestSchema.get_schema_from_a(), TestSchema.get_schema_from_b()]
+        dir = os.path.dirname(os.path.abspath(__file__))
         config.table_url = {
-            "table_from_a": "./tests/test_data/csv/table_from_a.csv",
-            "table_from_b": "./tests/test_data/csv/table_from_b.csv"
+            "table_from_a": dir + "/test_data/csv/table_from_a.csv",
+            "table_from_b": dir + "/test_data/csv/table_from_b.csv"
         }
         if party == 0:
-            config.engine_url = "sqlite:///tests/test_data/db/table_from_a.db"
+            config.engine_url = f"sqlite:///{dir}/test_data/db/table_from_a.db"
         else:
-            config.engine_url = "sqlite:///tests/test_data/db/table_from_b.db"
+            config.engine_url = f"sqlite:///{dir}/test_data/db/table_from_b.db"
         config.reveal_to = Party.ZERO
         config.mode = Mode.BIGDATA
         config.task_id = "test_task_id"
         return config
+
+    @staticmethod
+    def get_spark_config(party):
+        config = Config()
+        config.schemas = [TestSchema.get_schema_from_a(), TestSchema.get_schema_from_b()]
+        config.table_url = {
+            "table_from_a": TestConfig.get_test_data_path() + "/csv/table_from_a.csv",
+            "table_from_b": TestConfig.get_test_data_path() + "/csv/table_from_b.csv"
+        }
+
+        config.engine_url = TestConfig.get_test_spark_url(party)
+
+        config.reveal_to = Party.ZERO
+        config.mode = Mode.SPARK
+        config.task_id = "test_task_id"
+        return config
+
+    @staticmethod
+    def get_test_data_path(_=None):
+        data_dir = os.path.dirname(os.path.abspath(__file__)) + "/test_data"
+        return data_dir
+
+    @staticmethod
+    def get_tmp_data_path(party):
+        tmp_dir = os.path.dirname(os.path.abspath(__file__)) + f"/test_tmp_data/{party}"
+        return tmp_dir
+
+    @staticmethod
+    def get_test_spark_url(party):
+        tmp_dir = TestConfig.get_tmp_data_path(party)
+        config = {
+            "app_name": "Local Spark",
+            "master": "local",
+            "warehouse_dir": tmp_dir,
+            "metastore_db_dir": tmp_dir + "/metastore_db"
+        }
+        return "spark:///" + json.dumps(config)

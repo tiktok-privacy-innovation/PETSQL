@@ -14,5 +14,6 @@
 
 from .memory_driver import MemorySQLDriver
 from .sqlite_driver import SqliteDriver
+from .spark_driver import SparkDriver
 
-__all__ = ["MemorySQLDriver", "SqliteDriver"]
+__all__ = ["MemorySQLDriver", "SqliteDriver", "SparkDriver"]

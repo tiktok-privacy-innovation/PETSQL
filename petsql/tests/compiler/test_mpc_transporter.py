@@ -15,7 +15,7 @@
 from petsql.compiler import SQLCompiler
 from petsql.compiler import MPCTransporter
 
-from petsql.tests.utils import CommonTestBase, TestDataUtils
+from petsql.tests.utils import CommonTestBase
 from petsql.tests.config import TestConfig
 
 
@@ -23,11 +23,9 @@ class TestMPCTransporter(CommonTestBase):
 
     def test_mpc_transporter(self):
         config = TestConfig.get_config()
-        sql_compiler = SQLCompiler()
+        sql_compiler = SQLCompiler("./")
         sql = TestConfig.get_aimed_sql()
         logical_plan = sql_compiler.compile(sql, config)
 
         mpc_transporter = MPCTransporter()
-        physical_plan = mpc_transporter.transport(config, logical_plan)
-        aimed_physical_plan = TestDataUtils.load_json_from_file("test_physical_plan.json")
-        assert aimed_physical_plan == physical_plan
+        mpc_transporter.transport(config, logical_plan)

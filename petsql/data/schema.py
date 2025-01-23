@@ -14,6 +14,8 @@
 
 from enum import Enum
 from typing import List, Dict
+import pandas as pd
+from pyspark.sql.types import StringType, BooleanType, IntegerType, DoubleType
 
 from .exception import ColumnTypeException, SchemaException
 
@@ -57,6 +59,38 @@ class ColumnType(Enum):
         raise ColumnTypeException("unsupport input type: " + str(input_type))
 
     @staticmethod
+    def to_pandas_type(input_type) -> type:
+        """
+        Convert a column type to a Pandas type.
+
+        Parameters
+        ----------
+        input_type : ColumnType or int
+            The column type to be converted.
+
+        Returns
+        -------
+        type
+            The corresponding Python type.
+
+        Raises
+        ------
+        ColumnTypeException
+            If the input type is not supported.
+        """
+        if isinstance(input_type, int):
+            input_type = ColumnType(input_type)
+        if input_type == ColumnType.CHAR:
+            return pd.StringDtype()
+        if input_type == ColumnType.INT:
+            return pd.Int64Dtype()
+        if input_type == ColumnType.DOUBLE:
+            return pd.Float64Dtype()
+        if input_type == ColumnType.BOOLEAN:
+            return pd.BooleanDtype()
+        raise ColumnTypeException("unsupport input type: " + str(input_type))
+
+    @staticmethod
     def to_sql_type(input_type) -> str:
         """
         Convert a column type to a SQL type.
@@ -88,6 +122,70 @@ class ColumnType(Enum):
             return "BOOLEAN"
         raise ColumnTypeException("unsupport input type: " + str(input_type))
 
+    @staticmethod
+    def to_spark_type(input_type) -> str:
+        """
+        Convert a column type to a Spark type.
+
+        Parameters
+        ----------
+        input_type : ColumnType or int
+            The column type to be converted.
+
+        Returns
+        -------
+        str
+            The corresponding Spark type.
+
+        Raises
+        ------
+        ColumnTypeException
+            If the input type is not supported.
+        """
+        if isinstance(input_type, int):
+            input_type = ColumnType(input_type)
+        if input_type == ColumnType.CHAR:
+            return StringType()
+        if input_type == ColumnType.INT:
+            return IntegerType()
+        if input_type == ColumnType.DOUBLE:
+            return DoubleType()
+        if input_type == ColumnType.BOOLEAN:
+            return BooleanType()
+        raise ColumnTypeException("unsupport input type: " + str(input_type))
+
+    @staticmethod
+    def to_spark_sql_type(input_type) -> str:
+        """
+        Convert a column type to a Spark SQL type.
+
+        Parameters
+        ----------
+        input_type : ColumnType or int
+            The column type to be converted.
+
+        Returns
+        -------
+        str
+            The corresponding SQL type.
+
+        Raises
+        ------
+        ColumnTypeException
+            If the input type is not supported.
+        """
+        if isinstance(input_type, int):
+            input_type = ColumnType(input_type)
+        if input_type == ColumnType.CHAR:
+            return "STRING"
+        if input_type == ColumnType.INT:
+            return "INT"
+        if input_type == ColumnType.DOUBLE:
+            return "DOUBLE"
+        if input_type == ColumnType.BOOLEAN:
+            return "BOOLEAN"
+        raise ColumnTypeException("unsupport input type: " + str(input_type))
+
 
 class Party(Enum):
     ZERO = 0
@@ -113,7 +211,7 @@ class Column:
     ----------
     name : str
         The name of this column.
-    types : ColumnType
+    type : ColumnType
         The data type of this column.
     party : Party
         The party of this column.

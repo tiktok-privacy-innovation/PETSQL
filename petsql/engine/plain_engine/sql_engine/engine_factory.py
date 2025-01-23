@@ -12,12 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .drivers import MemorySQLDriver, SqliteDriver
+from .drivers import MemorySQLDriver, SqliteDriver, SparkDriver
 
-DriverMap = {
-    "memory": MemorySQLDriver,
-    "sqlite": SqliteDriver,
-}
+DriverMap = {"memory": MemorySQLDriver, "sqlite": SqliteDriver, "spark": SparkDriver}
 
 
 class SqlEngineFactory:

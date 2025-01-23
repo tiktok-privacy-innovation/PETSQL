@@ -21,7 +21,8 @@ from petsql.tests.config import TestConfig
 class TestCompiler(CommonTestBase):
 
     def test_compiler(self):
-        compiler = SQLCompiler()
+        tmp_dir = TestConfig.get_tmp_data_path(0) + "/compiler"
+        compiler = SQLCompiler(tmp_dir)
         sql = TestConfig.get_aimed_sql()
         config = TestConfig.get_config()
         ret = compiler.compile(sql, config)

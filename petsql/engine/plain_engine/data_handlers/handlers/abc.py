@@ -15,14 +15,22 @@
 from typing import List
 from abc import ABC, abstractmethod
 import pandas as pd
+from petsql.data import Column
 
 
 class AbstractDataHandler(ABC):
-
+    # pylint: disable=keyword-arg-before-vararg
     @abstractmethod
-    def read(self, path: str, columns: List[str] = None) -> pd.DataFrame:
+    def read(self, path: str, columns: List["Column"] = None, index_column_name=None, *args, **kwargs) -> pd.DataFrame:
         pass
 
+    # pylint: disable=keyword-arg-before-vararg
     @abstractmethod
-    def write(self, path: str, data: pd.DataFrame, columns: List[str] = None) -> None:
+    def write(self,
+              path: str,
+              data: pd.DataFrame,
+              columns: List["Column"] = None,
+              index_column_name=None,
+              *args,
+              **kwargs) -> None:
         pass

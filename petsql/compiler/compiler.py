@@ -14,59 +14,13 @@
 
 import os
 import json
-import atexit
+import subprocess
+import uuid
 from typing import List
-from jpype import JClass, getDefaultJVMPath, startJVM
-from jpype import shutdownJVM, isJVMStarted
 
 from petsql.common import Config
 
 from .exception import SQLCompilerException
-
-
-class JVMManager:
-    """
-    Singleton pattern JVM manager, responsible for managing the entire lifecycle of the JVM,
-    ensuring that the JVM is started and shut down correctly.
-
-    Attributes
-    ----------
-    is_started : bool
-        Whether the JVM is started.
-    java_path : str
-        The path of the Java class file.
-    """
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(JVMManager, cls).__new__(cls)
-            cls._instance.is_started = False
-            cls._instance.java_path = ""
-        return cls._instance
-
-    def start_jvm(self, java_path: str) -> None:
-        """
-        Start the JVM if it is not started.
-
-        Parameters
-        ----------
-        java_path : str
-            The path of the Java class file.
-        """
-        if not self.is_started:
-            if not isJVMStarted():
-                self.java_path = java_path
-                startJVM(getDefaultJVMPath(), "-ea", "-Djava.class.path=" + self.java_path)
-                self.is_started = True
-
-    def shutdown_jvm(self) -> None:
-        """
-        Shutdown the JVM if it is started.
-        """
-        if self.is_started and isJVMStarted():
-            shutdownJVM()
-            self.is_started = False
 
 
 class SQLCompiler:
@@ -85,10 +39,11 @@ class SQLCompiler:
         The path of the Java class file.
     """
 
-    def __init__(self, java_path=None) -> None:
+    def __init__(self, tmp_path, java_path=None) -> None:
+        self.tmp_path = tmp_path
+        os.makedirs(tmp_path, exist_ok=True)
         if java_path is None:
-            java_path = os.path.dirname(os.path.abspath(__file__)) + "/__binding/petsql-1.0.jar"
-        JVMManager().start_jvm(java_path)
+            self.java_path = os.path.dirname(os.path.abspath(__file__)) + "/__binding/petsql-1.0.jar"
 
     def compile(self, sql: str, config: Config) -> List:
         """
@@ -106,17 +61,23 @@ class SQLCompiler:
         List
             The logical plan of the SQL statement.
         """
+        parmas = {
+            "sql": sql,
+            "config": config.to_dict(),
+            "java_path": self.java_path,
+            "output_path": self.tmp_path + f"/compiler_output_{uuid.uuid4()}.json"
+        }
+        # pylint: disable=too-many-try-statements
         try:
-            # Get the SQLCompiler class from JVM
-            sql_compiler = JClass("com.tiktok.petsql.SQLCompiler")
-
-            compiler = sql_compiler()
-            tmp = config.to_dict()
-            ret = compiler.sqlToLogicPlan(sql, json.dumps({"schemas": tmp["schemas"]}))
-            return json.loads(str(ret))["rels"]
-        except Exception as e:
-            raise SQLCompilerException(str(e)) from e
-
-
-# Shutdown the JVM when the program exits
-atexit.register(JVMManager().shutdown_jvm)
+            script_path = os.path.dirname(os.path.abspath(__file__)) + "/scripts/java_compiler.py"
+            subprocess.run(["python3", script_path, json.dumps(parmas)])
+            if os.path.exists(parmas["output_path"]):
+                with open(parmas["output_path"], "r") as f:
+                    ret = json.loads(f.read())
+                if ret["status"] == "success":
+                    return ret["ret"]
+                raise SQLCompilerException(ret["err_msg"])
+            raise SQLCompilerException("subprocess error")
+        finally:
+            if os.path.exists(parmas["output_path"]):
+                os.remove(parmas["output_path"])

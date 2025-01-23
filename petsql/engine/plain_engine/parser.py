@@ -93,7 +93,8 @@ class Parser:
             return f"({left_operand} {op_name} {right_operand})"
         raise PlainEngineParserException("Unsupported expression")
 
-    def parse_project_plan_to_sql(self, plan: Dict, last_schema: "Schema", mode: "Mode") -> Tuple[str, "Schema"]:
+    def parse_project_plan_to_sql(self, plan: Dict, last_schema: "Schema", mode: "Mode",
+                                  index: str) -> Tuple[str, "Schema"]:
         """
         Convert a project plan into SQL code.
 
@@ -105,6 +106,8 @@ class Parser:
             The last schema.
         mode : Mode
             The mode.
+        index: str
+            The index of data
 
         Returns
         -------
@@ -125,14 +128,20 @@ class Parser:
             elif "operator" in expression:
                 project_sub_expression = self._build_expression_recursion(expression)
                 select_clause.append(f"{project_sub_expression} AS {column_name}")
+        if index:
+            select_clause.append(f"{index} AS {index}")
         select_statement = ", ".join(select_clause)
         table_from_name = last_schema.name
         output_table_name = output_table_schema.name
         project_sql = f"SELECT {select_statement} FROM {table_from_name}"
         if mode == Mode.MEMORY:
             project_sql += f" AS {output_table_name};"
-        else:
+        elif mode == Mode.BIGDATA:
             project_sql = f"INSERT INTO {output_table_name} " + project_sql + ";"
+        elif mode == Mode.SPARK:
+            project_sql = f"INSERT OVERWRITE TABLE {output_table_name} " + project_sql + ";"
+        else:
+            raise RuntimeError(f"unsupport mode: {mode}")
         return project_sql, output_table_schema
 
     def parse_filter_plan_to_sql(self, plan: Dict, last_schema: "Schema", mode: "Mode") -> Tuple[str, "Schema"]:
@@ -161,8 +170,12 @@ class Parser:
         output_table_name = output_table_schema.name
         if mode == Mode.MEMORY:
             where_sql = f"SELECT * FROM {table_from_name} AS {output_table_name} WHERE {where_clause};"
-        else:
+        elif mode == Mode.BIGDATA:
             where_sql = f"INSERT INTO {output_table_name} SELECT * FROM {table_from_name} WHERE {where_clause};"
+        elif mode == Mode.SPARK:
+            where_sql = f"INSERT OVERWRITE TABLE {output_table_name} SELECT * FROM {table_from_name} WHERE {where_clause};"
+        else:
+            raise RuntimeError(f"unsupport mode: {mode}")
         return where_sql, output_table_schema
 
     def parse_join_plan_to_sql(self, plan: Dict, last_schemas: List["Schema"], mode: "Mode") -> Tuple[str, "Schema"]:
@@ -196,8 +209,12 @@ class Parser:
         output_table_name = output_table_schema.name
         if mode == Mode.MEMORY:
             join_sql = f"SELECT * FROM (SELECT * FROM {last_schemas[0].name} JOIN {last_schemas[1].name} ON {join_clause}) AS {output_table_name};"
-        else:
+        elif mode == Mode.BIGDATA:
             join_sql = f"INSERT INTO {output_table_name} SELECT * FROM {last_schemas[0].name} JOIN {last_schemas[1].name} ON {join_clause};"
+        elif mode == Mode.SPARK:
+            join_sql = f"INSERT OVERWRITE TABLE  {output_table_name} SELECT * FROM {last_schemas[0].name} JOIN {last_schemas[1].name} ON {join_clause};"
+        else:
+            raise RuntimeError(f"unsupport mode: {mode}")
         return join_sql, output_table_schema
 
     def parse_aggregate_plan_to_sql(self, plan: Dict, last_schema: "Schema", mode: "Mode") -> Tuple[str, "Schema"]:
@@ -236,12 +253,16 @@ class Parser:
         output_table_schema = Schema().from_dict(plan["outputs"][0])
         output_table_name = output_table_schema.name
         if mode == Mode.MEMORY:
-            aggregate_sql = f"SELECT * FROM (SELECT {aggregate_caluse} FROM {table_from_name} GROUP BY {group_by_caluse}) AS {output_table_name};"
+            aggregate_sql = f"SELECT * FROM (SELECT {aggregate_caluse} FROM {table_from_name} GROUP BY {group_by_caluse} ORDER BY {group_by_caluse} ASC) AS {output_table_name};"
+        elif mode == Mode.BIGDATA:
+            aggregate_sql = f"INSERT INTO {output_table_name} SELECT {aggregate_caluse} FROM {table_from_name} GROUP BY {group_by_caluse} ORDER BY {group_by_caluse} ASC;"
+        elif mode == Mode.SPARK:
+            aggregate_sql = f"INSERT OVERWRITE TABLE {output_table_name} SELECT {aggregate_caluse} FROM {table_from_name} GROUP BY {group_by_caluse} ORDER BY {group_by_caluse} ASC;"
         else:
-            aggregate_sql = f"INSERT INTO {output_table_name} SELECT {aggregate_caluse} FROM {table_from_name} GROUP BY {group_by_caluse};"
+            raise RuntimeError(f"unsupport mode: {mode}")
         return aggregate_sql, output_table_schema
 
-    def create_output_table_sql_from_plan(self, plan: Dict) -> str:
+    def create_output_table_sql_from_plan(self, plan: Dict, mode: Mode, index=None) -> str:
         """
         Create the output table sql according to the plan.
 
@@ -249,6 +270,10 @@ class Parser:
         ----------
         plan : Dict
             The physical plan.
+        mode : Mode
+            The mode of vm.
+        index: str
+            The index of data.
 
         Returns
         -------
@@ -259,8 +284,16 @@ class Parser:
         output_table_schema = Schema().from_dict(plan["outputs"][0])
         output_table_name = output_table_schema.name
         column_clause = []
-        for column in output_table_schema.columns:
-            column_clause.append(f"{column.name} {ColumnType.to_sql_type(column.type)}")
+        if mode == Mode.BIGDATA:
+            for column in output_table_schema.columns:
+                column_clause.append(f"{column.name} {ColumnType.to_sql_type(column.type)}")
+            if index:
+                column_clause.append(f"{index} INTEGER")
+        elif mode == Mode.SPARK:
+            for column in output_table_schema.columns:
+                column_clause.append(f"{column.name} {ColumnType.to_spark_sql_type(column.type)}")
+            if index:
+                column_clause.append(f"{index} INT")
         column_clause = ", ".join(column_clause)
         create_table_sql = f"CREATE TABLE IF NOT EXISTS {output_table_name}({column_clause});"
         return create_table_sql

@@ -18,7 +18,7 @@ from abc import ABC, abstractmethod
 
 class OperatorBase(ABC):
 
-    def __init__(self, party: str, **kwargs):
+    def __init__(self, party: str, **_kwargs):
         self.party = party
         self.party_id = None
 

@@ -15,10 +15,10 @@
 from typing import Union, List, Dict
 import pandas as pd
 
-from petsql.data import PlainMemoryData, PlainBigData
+from petsql.data import PlainMemoryData, PlainBigData, PlainSparkData
 from petsql.engine.plain_engine.data_handlers import DataHandler
 from petsql.engine.plain_engine.sql_engine import AbstractSqlDriver
-from petsql.data import Schema
+from petsql.data import Schema, Column
 from petsql.common import Mode
 from petsql.engine.plain_engine.parser import Parser
 
@@ -87,17 +87,24 @@ class PlainEngine:
             PlainMemoryData or PlainBigData object.
         """
         output_schema = Schema().from_dict(physical_plan["outputs"][0])
-        columns = [column.name for column in output_schema.columns]
         table_name = physical_plan["inputs"]["table"][0]["name"]
         url = physical_plan["inputs"]["url"][table_name]
+        if self.mode == Mode.SPARK:
+            self.data_handler.write(self.sql_driver.url,
+                                    url,
+                                    output_schema.name,
+                                    output_schema.columns,
+                                    None,
+                                    header=True)
+            return PlainSparkData(self.sql_driver.url, output_schema)
         file_type = url.split(".")[-1]
         if file_type in {"csv", "parquet"}:
-            data = self.data_handler.read(url, table_name, columns)
+            data = self.data_handler.read(url, table_name, output_schema.columns, header=0)
             if self.mode == Mode.MEMORY:
                 return PlainMemoryData(data, output_schema)
             if self.mode == Mode.BIGDATA:
                 url = self.sql_driver.url.split("///")[1]
-                self.save_data(url, data, table_name, columns)
+                self.save_data(url, data, table_name, output_schema.columns)
                 output_schema.name = table_name
                 return PlainBigData(url, output_schema)
             raise PlainEngineOperatorException(f"Unsupported mode: {self.mode}")
@@ -107,7 +114,7 @@ class PlainEngine:
     def load_data_from_plain_data(self,
                                   data: Union[PlainMemoryData, PlainBigData],
                                   table_name: str,
-                                  columns: List[str] = None) -> pd.DataFrame:
+                                  columns: List["Column"] = None) -> pd.DataFrame:
         """
         Load data from plain data.
 
@@ -129,7 +136,7 @@ class PlainEngine:
             if columns is None:
                 select_columns = [column.name for column in data.schema.columns]
             else:
-                select_columns = columns
+                select_columns = [column.name for column in columns]
             return data.data[select_columns]
         if isinstance(data, PlainBigData):
             data = self.data_handler.read(data.data, table_name, columns)
@@ -137,7 +144,7 @@ class PlainEngine:
 
         return None
 
-    def save_data(self, url: str, data: pd.DataFrame, table_name: str, columns: List[str] = None) -> None:
+    def save_data(self, url: str, data: pd.DataFrame, table_name: str, columns: List[Column] = None) -> None:
         """
         Save data according to the url.
 
@@ -173,21 +180,30 @@ class PlainEngine:
         plain_data = data.plain_data
         last_schema = data.schema
         if plain_plan["expressions"]:
-            sql, output_table_schema = self.parser.parse_project_plan_to_sql(plain_plan, last_schema, self.mode)
+            sql, output_table_schema = self.parser.parse_project_plan_to_sql(plain_plan, last_schema, self.mode,
+                                                                             plain_data.index)
             input_table_name = last_schema.name
             if isinstance(plain_data, PlainMemoryData) and self.mode == Mode.MEMORY:
                 content = {f'{input_table_name}': plain_data.data}
                 self.sql_driver.register(**content)
                 res_data = self.sql_driver.execute(sql)
-                return PlainMemoryData(res_data, output_table_schema)
+                return PlainMemoryData(res_data, output_table_schema, plain_data.index)
             if isinstance(plain_data, PlainBigData) and self.mode == Mode.BIGDATA:
                 url = plain_data.data
-                create_table_sql = self.parser.create_output_table_sql_from_plan(plain_plan)
+                create_table_sql = self.parser.create_output_table_sql_from_plan(plain_plan, self.mode,
+                                                                                 plain_data.index)
                 drop_table_sql = f'DROP TABLE IF EXISTS {output_table_schema.name};'
                 self.sql_driver.execute(drop_table_sql)
                 self.sql_driver.execute(create_table_sql)
                 self.sql_driver.execute(sql)
-                return PlainBigData(url, output_table_schema)
+                return PlainBigData(url, output_table_schema, plain_data.index)
+            if isinstance(plain_data, PlainSparkData) and self.mode == Mode.SPARK:
+                url = plain_data.data
+                create_table_sql = self.parser.create_output_table_sql_from_plan(plain_plan, self.mode,
+                                                                                 plain_data.index)
+                drop_table_sql = f'DROP TABLE IF EXISTS {output_table_schema.name};'
+                self.sql_driver.execute_batch([drop_table_sql, create_table_sql, sql])
+                return PlainSparkData(url, output_table_schema, plain_data.index)
             raise PlainEngineOperatorException("Data and mode is not consistent.")
         return None
 
@@ -215,15 +231,21 @@ class PlainEngine:
             content = {f'{input_table_name}': plain_data.data}
             self.sql_driver.register(**content)
             res_data = self.sql_driver.execute(sql)
-            return PlainMemoryData(res_data, output_table_schema)
+            return PlainMemoryData(res_data, output_table_schema, plain_data.index)
         if isinstance(plain_data, PlainBigData) and self.mode == Mode.BIGDATA:
             url = plain_data.data
-            create_table_sql = self.parser.create_output_table_sql_from_plan(plain_plan)
+            create_table_sql = self.parser.create_output_table_sql_from_plan(plain_plan, self.mode, plain_data.index)
             drop_table_sql = f'DROP TABLE IF EXISTS {output_table_schema.name};'
             self.sql_driver.execute(drop_table_sql)
             self.sql_driver.execute(create_table_sql)
             self.sql_driver.execute(sql)
-            return PlainBigData(url, output_table_schema)
+            return PlainBigData(url, output_table_schema, plain_data.index)
+        if isinstance(plain_data, PlainSparkData) and self.mode == Mode.SPARK:
+            url = plain_data.data
+            create_table_sql = self.parser.create_output_table_sql_from_plan(plain_plan, self.mode, plain_data.index)
+            drop_table_sql = f'DROP TABLE IF EXISTS {output_table_schema.name};'
+            self.sql_driver.execute_batch([drop_table_sql, create_table_sql, sql])
+            return PlainSparkData(url, output_table_schema, plain_data.index)
         raise PlainEngineOperatorException("Data and mode is not consistent.")
 
     def join(self, data: List["RegisterItem"], plain_plan: Dict) -> Union[PlainMemoryData, PlainBigData]:
@@ -251,15 +273,21 @@ class PlainEngine:
             res_data = self.sql_driver.execute(sql)
             output_table_columns_name = [column.name for column in output_table_schema.columns]
             res_data.rename(columns=dict(zip(res_data.columns, output_table_columns_name)), inplace=True)
-            return PlainMemoryData(res_data, output_table_schema)
+            return PlainMemoryData(res_data, output_table_schema, plain_data[0].index)
         if isinstance(plain_data[0], PlainBigData) and self.mode == Mode.BIGDATA:
             url = plain_data[0].data
-            create_table_sql = self.parser.create_output_table_sql_from_plan(plain_plan)
+            create_table_sql = self.parser.create_output_table_sql_from_plan(plain_plan, self.mode)
             drop_table_sql = f'DROP TABLE IF EXISTS {output_table_schema.name};'
             self.sql_driver.execute(drop_table_sql)
             self.sql_driver.execute(create_table_sql)
             self.sql_driver.execute(sql)
-            return PlainBigData(url, output_table_schema)
+            return PlainBigData(url, output_table_schema, plain_data[0].index)
+        if isinstance(plain_data[0], PlainSparkData) and self.mode == Mode.SPARK:
+            url = plain_data[0].data
+            create_table_sql = self.parser.create_output_table_sql_from_plan(plain_plan, self.mode)
+            drop_table_sql = f'DROP TABLE IF EXISTS {output_table_schema.name};'
+            self.sql_driver.execute_batch([drop_table_sql, create_table_sql, sql])
+            return PlainSparkData(url, output_table_schema, plain_data[0].index)
         raise PlainEngineOperatorException("Data and mode is not consistent.")
 
     def aggregate(self, data: "RegisterItem", plain_plan: Dict) -> Union[PlainMemoryData, PlainBigData]:
@@ -289,10 +317,16 @@ class PlainEngine:
             return PlainMemoryData(res_data, output_table_schema)
         if isinstance(plain_data, PlainBigData) and self.mode == Mode.BIGDATA:
             url = plain_data.data
-            create_table_sql = self.parser.create_output_table_sql_from_plan(plain_plan)
+            create_table_sql = self.parser.create_output_table_sql_from_plan(plain_plan, self.mode)
             drop_table_sql = f'DROP TABLE IF EXISTS {output_table_schema.name};'
             self.sql_driver.execute(drop_table_sql)
             self.sql_driver.execute(create_table_sql)
             self.sql_driver.execute(sql)
             return PlainBigData(url, output_table_schema)
+        if isinstance(plain_data, PlainSparkData) and self.mode == Mode.SPARK:
+            url = plain_data.data
+            create_table_sql = self.parser.create_output_table_sql_from_plan(plain_plan, self.mode)
+            drop_table_sql = f'DROP TABLE IF EXISTS {output_table_schema.name};'
+            self.sql_driver.execute_batch([drop_table_sql, create_table_sql, sql])
+            return PlainSparkData(url, output_table_schema)
         raise PlainEngineOperatorException("Data and mode is not consistent.")

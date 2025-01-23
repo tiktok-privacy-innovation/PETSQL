@@ -635,3 +635,4 @@ FodyWeavers.xsd
 *.csv
 *.db
 *.parquet
+petsql/tests/test_tmp_data/*

@@ -23,6 +23,7 @@ class Mode(Enum):
     MEMORY = "memory"
     BIGDATA = "bigdata"
     MIXED = "mixed"
+    SPARK = "spark"
 
 
 class Config:

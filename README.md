@@ -1,6 +1,6 @@
 # PETSQL
 
-PETSQL is a framework for secure collaborative data analysis based on Secure Multi-Party Computation (MPC), and its core capabilities are supported by [PETAce](https://github.com/tiktok-privacy-innovation/PETAce). PETSQL is designed to be compatible with traditional SQL engines and primarily comprises the following parts:
+PETSQL is a framework for secure collaborative data analysis based on Secure Multi-Party Computation (MPC), and its core capabilities are supported by [PETAce](https://github.com/tiktok-privacy-innovation/PETAce). PETSQL integrates MPC with the Spark big data engine and allow users to initiate collaborative computing tasks using standard SQL statements. Designed specifically for big data privacy needs, the framework encapsulates data objects and computational operations. As a result, by enabling the framework to handle big data objects and tasks, we can seamlessly extend big data support without requiring any front-end modifications. PETSQL primarily comprises the following parts:
 
 - `Compiler` and `Transporter`: A compiler parses SQL statements and schema information into a structured logical execution plan. A transporter takes into account the characteristics of MPC and rewrites the logical execution plan into real processes.
 
@@ -58,13 +58,13 @@ Here we give a simple example to run protocols in PETSQL.
 To run Party A
 
 ```shell
-python3 ./example/example.py -p 0
+python3 ./example/memory.py -p 0
 ```
 
 To run Party B
 
 ```shell
-python3 ./example/example.py -p 1
+python3 ./example/memory.py -p 1
 ```
 
 For more details, please refer to the example.
